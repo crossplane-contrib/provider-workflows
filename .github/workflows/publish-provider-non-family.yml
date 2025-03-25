@@ -26,11 +26,16 @@ on:
         default: ubuntu-latest
         required: false
         type: string
+      mirror-to-upbound-registry:
+        description: "If set to true, the xpkg will be mirrored to xpkg.upbound.io"
+        required: false
+        type: boolean
+        default: true
     secrets:
       GHCR_PAT:
         required: true
       XPKG_UPBOUND_TOKEN:
-        required: true
+        required: false # still needed if inputs.mirror-to-upbound-registry is true
 
 env:
   # Common versions
@@ -130,6 +135,7 @@ jobs:
   mirror-to-xpkg-upbound-io:
     needs: publish-artifacts
     runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.mirror-to-upbound-registry }}
     steps:
       - name: Setup QEMU
         uses: docker/setup-qemu-action@2b82ce82d56a2a04d2637cd93a637ae1b359c0a7 # v2
