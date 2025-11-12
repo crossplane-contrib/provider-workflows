@@ -1,0 +1,54 @@
+name: Get Provider Subpackages
+description: Compute the resolved list of provider subpackages using the provider's Makefile.
+inputs:
+  provider:
+    description: GitHub repository of the family provider, for example crossplane-contrib/provider-upjet-alibabacloud.
+    required: true
+  ref:
+    description: Branch, tag, or SHA of the provider repository to checkout.
+    required: true
+  subpackages_str:
+    description: Space-delimited list of requested subpackages. Use '*' to request automatic expansion when supported.
+    required: false
+    default: ''
+  token:
+    description: Token with read access to the provider repository (e.g. GITHUB_TOKEN or a PAT).
+    required: true
+outputs:
+  subpackages:
+    description: The computed subpackages for the family provider.
+    value: ${{ steps.calc_subpackages.outputs.subpackages }}
+runs:
+  using: composite
+  steps:
+    - name: Checkout ${{ inputs.provider }}
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        repository: ${{ inputs.provider }}
+        ref: ${{ inputs.ref }}
+        token: ${{ inputs.token }}
+
+    - id: calc_subpackages
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${{ inputs.subpackages_str }}" ]]; then
+          echo "subpackages_str was not provided; skipping calculation."
+          exit 0
+        fi
+        if make -q print-subpackages; [[ $? == 1 ]]; then
+          echo "subpackages=$(make SUBPACKAGES="${{ inputs.subpackages_str }}" print-subpackages)" >> $GITHUB_OUTPUT
+        elif [[ "${{ inputs.subpackages_str }}" == "*" ]]; then
+          # wildcard request in the context of a provider not supporting it...
+          echo "Provider ${{ inputs.provider }} does not support wildcard subpackage specification."
+          exit 1
+        else
+          echo "subpackages=${{ inputs.subpackages_str }}" >> $GITHUB_OUTPUT
+        fi
+
+    - id: debug
+      shell: bash
+      run: |
+        echo "Computed subpackages: ${{ steps.calc_subpackages.outputs.subpackages }}"
+
