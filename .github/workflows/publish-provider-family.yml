@@ -64,19 +64,29 @@ jobs:
   index:
     runs-on: ${{ inputs.runs-on }}
     outputs:
+      subpackages: ${{ steps.calc_subpackages.outputs.subpackages }}
       indices: ${{ steps.calc.outputs.indices }}
     steps:
+      - name: Get provider subpackages
+        id: calc_subpackages
+        uses: crossplane-contrib/provider-workflows/.github/actions/get-provider-subpackages@4b68054c68e748195624fcf8187886a1123fc7a2
+        with:
+          provider: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          subpackages_str: ${{ inputs.subpackages }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - id: calc
         run: |
-          python3 -c "import math; print(f'indices={list(range(0, math.ceil(len(\"${{ inputs.subpackages }}\".split()) / int(\"${{ inputs.size }}\"))))}')" >> "$GITHUB_OUTPUT"
+          python3 -c "import math; print(f'indices={list(range(0, math.ceil(len(\"${{ steps.calc_subpackages.outputs.subpackages }}\".split()) / int(\"${{ inputs.size }}\"))))}')" >> "$GITHUB_OUTPUT"
 
   publish-artifacts:
+    needs: index
+    runs-on: ${{ inputs.runs-on }}
     strategy:
       matrix:
         index: ${{ fromJSON(needs.index.outputs.indices) }}
 
-    needs: index
-    runs-on: ${{ inputs.runs-on }}
     steps:
       - name: Cleanup Disk
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -146,7 +156,7 @@ jobs:
       - name: Calculate packages to build & push
         id: packages
         run: |
-          echo target=$(python3 -c "print(' '.join(\"${{ inputs.subpackages }}\".split()[int(\"${{ matrix.index }}\") * int(\"${{ inputs.size }}\"): (int(\"${{ matrix.index }}\")+1) * int(\"${{ inputs.size }}\")]))") >> "$GITHUB_OUTPUT"
+          echo target=$(python3 -c "print(' '.join(\"${{ needs.index.outputs.subpackages }}\".split()[int(\"${{ matrix.index }}\") * int(\"${{ inputs.size }}\"): (int(\"${{ matrix.index }}\")+1) * int(\"${{ inputs.size }}\")]))") >> "$GITHUB_OUTPUT"
 
       - name: Build Artifacts
         id: build_artifacts
@@ -169,7 +179,7 @@ jobs:
 
       - name: Mirror to xpkg.upbound.io
         if: ${{ inputs.mirror-to-upbound-registry }}
-        uses: ./.github/actions/mirror-to-xpkg-upbound-io
+        uses: crossplane-contrib/provider-workflows/.github/actions/mirror-to-xpkg-upbound-io@4b68054c68e748195624fcf8187886a1123fc7a2
         with:
           subpackages: ${{ steps.packages.outputs.target }}
           repository: ${{ inputs.repository }}
