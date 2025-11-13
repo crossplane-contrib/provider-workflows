@@ -1,0 +1,125 @@
+name: Mirror to xpkg.upbound.io
+description: Mirror Crossplane packages to the Upbound registry with retry support.
+
+inputs:
+  subpackages:
+    description: 'Whitespace separated list of subpackages to mirror (e.g. "config ec2")'
+    required: true
+  repository:
+    description: 'Source repository (like provider-aws, provider-azure..)'
+    required: true
+  version:
+    description: 'Version string used for tagging the packages'
+    required: true
+  xpkg-upbound-token:
+    description: 'Upbound token used for mirroring to xpkg.upbound.io'
+    required: true
+  crossplane-regorg:
+    description: 'Source registry/org for Crossplane packages'
+    required: false
+    default: 'ghcr.io/crossplane-contrib'
+  upbound-regorg:
+    description: 'Destination registry/org for mirrored packages'
+    required: false
+    default: 'xpkg.upbound.io/crossplane-contrib'
+  up-domain:
+    description: 'Upbound domain used for authentication'
+    required: false
+    default: 'https://upbound.io'
+  up-version:
+    description: 'Version of the Up CLI to install'
+    required: false
+    default: 'v0.37.1'
+  max-attempts:
+    description: 'Number of maximum attempts for each package mirror operation'
+    required: false
+    default: '10'
+  retry-delay:
+    description: 'Delay in seconds between retry attempts'
+    required: false
+    default: '30'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup crane
+        # crane will inherit credentials from `docker login`
+      uses: imjasonh/setup-crane@v0.4
+
+    - name: Validate crane installation
+      shell: bash
+      run: crane version
+
+    - name: Up Login
+      shell: bash
+      env:
+        UP_VERSION: ${{ inputs.up-version }}
+        UP_TOKEN: ${{ inputs.xpkg-upbound-token }}
+      run: |
+        curl -fsSLo /tmp/up --create-dirs "https://cli.upbound.io/stable/${UP_VERSION}/bin/linux_amd64/up" && \
+        chmod +x /tmp/up && \
+        /tmp/up login
+
+    - name: Install docker-credential-up
+      shell: bash
+      env:
+        UP_VERSION: ${{ inputs.up-version }}
+      run: |
+        curl -fsSLo /tmp/docker-credential-up --create-dirs "https://cli.upbound.io/stable/${UP_VERSION}/bin/linux_amd64/docker-credential-up" && \
+        chmod +x /tmp/docker-credential-up && \
+        sudo mv /tmp/docker-credential-up /usr/local/bin/docker-credential-up
+
+    - name: Get creds
+      id: get_creds
+      shell: bash
+      env:
+        UP_DOMAIN: ${{ inputs.up-domain }}
+      run: |
+        mkdir -p "$HOME/.up"
+        echo "${UP_DOMAIN}" | docker-credential-up get > "$HOME/.up/up.token.json"
+        echo "docker_username=$(jq -r '.Username' "$HOME/.up/up.token.json")" >> "$GITHUB_OUTPUT"
+        echo "docker_pwd=$(jq -r '.Secret' "$HOME/.up/up.token.json")" >> "$GITHUB_OUTPUT"
+
+    - name: Login to Upbound
+      uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+      if: steps.get_creds.outputs.docker_username != ''
+      with:
+        registry: 'xpkg.upbound.io'
+        username: ${{ steps.get_creds.outputs.docker_username }}
+        password: ${{ steps.get_creds.outputs.docker_pwd }}
+
+    - name: Mirror to xpkg.upbound.io
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.subpackages }}" ]; then
+          echo "No subpackages provided; skipping mirror."
+          exit 0
+        fi
+
+        for subpackage in ${{ inputs.subpackages }}; do
+          p="${{ inputs.repository }}-$subpackage"
+          if [ "$subpackage" = "config" ]; then
+            p="provider-family-$(echo "${{ inputs.repository }}" | sed 's/provider-//')"
+          fi
+
+          attempt=1
+          success=0
+          while [ $attempt -le "${{ inputs.max-attempts }}" ]; do
+            echo "Attempt $attempt/${{ inputs.max-attempts }}: copying ${{ inputs.crossplane-regorg }}/$p:${{ inputs.version }} -> ${{ inputs.upbound-regorg }}/$p:${{ inputs.version }}"
+            if crane copy "${{ inputs.crossplane-regorg }}/$p:${{ inputs.version }}" "${{ inputs.upbound-regorg }}/$p:${{ inputs.version }}" --allow-nondistributable-artifacts; then
+              success=1
+              break
+            fi
+            attempt=$((attempt + 1))
+            if [ $attempt -le "${{ inputs.max-attempts }}" ]; then
+              echo "Copy failed, retrying in ${{ inputs.retry-delay }}s..." >&2
+              sleep "${{ inputs.retry-delay }}"
+            fi
+          done
+
+          if [ $success -ne 1 ]; then
+            echo "ERROR: Failed to mirror $p after ${{ inputs.max-attempts }} attempts." >&2
+            exit 1
+          fi
+        done
+
