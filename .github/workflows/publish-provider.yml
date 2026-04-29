@@ -41,6 +41,16 @@ on:
         required: false
         type: string
         default: "crossplane-contrib"
+      append-extensions:
+        description: "If set to true, extensions (e.g. marketplace icons) will be appended to the mirrored package using `up alpha xpkg append`."
+        required: false
+        type: boolean
+        default: false
+      extensions-root:
+        description: "Path to the extensions directory relative to the repository root."
+        required: false
+        type: string
+        default: "./extensions"
     secrets:
       GHCR_PAT:
         required: true
@@ -179,3 +189,21 @@ jobs:
       - name: Mirror to ${{ inputs.mirror-registry }}
         run: |
           crane copy ${{ env.CROSSPLANE_REGORG }}/${{ inputs.repository }}:${{ inputs.version }} ${{ env.MIRROR_REGORG }}/${{ inputs.repository }}:${{ inputs.version }} --allow-nondistributable-artifacts
+
+  append-extensions:
+    needs:
+      - publish-artifacts
+      - mirror-to-additional-registry
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ always() && inputs.append-extensions && needs.publish-artifacts.result == 'success' && (needs.mirror-to-additional-registry.result == 'success' || needs.mirror-to-additional-registry.result == 'skipped') }}
+    steps:
+      - name: Checkout ${{ github.repository }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Append extensions
+        uses: crossplane-contrib/provider-workflows/.github/actions/append-xpkg-extensions@main
+        with:
+          package: ${{ env.MIRROR_REGORG }}/${{ inputs.repository }}
+          version: ${{ inputs.version }}
+          extensions-root: ${{ inputs.extensions-root }}
+          xpkg-upbound-token: ${{ secrets.XPKG_MIRROR_TOKEN }}

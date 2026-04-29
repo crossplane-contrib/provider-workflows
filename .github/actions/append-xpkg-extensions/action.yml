@@ -1,0 +1,45 @@
+name: Append xpkg Extensions
+description: Append extensions (e.g. marketplace icons) to a published Crossplane package using `up alpha xpkg append`.
+
+inputs:
+  package:
+    description: 'Full package reference without the version tag (e.g. xpkg.upbound.io/crossplane-contrib/provider-upjet-zitadel)'
+    required: true
+  version:
+    description: 'Version tag of the package to append extensions to'
+    required: true
+  extensions-root:
+    description: 'Path to the extensions directory'
+    required: false
+    default: './extensions'
+  xpkg-upbound-token:
+    description: 'Upbound token used for authentication'
+    required: true
+  up-version:
+    description: 'Version of the Up CLI to install'
+    required: false
+    default: 'v0.39.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Install up CLI
+      shell: bash
+      env:
+        UP_VERSION: ${{ inputs.up-version }}
+      run: |
+        curl -fsSLo /tmp/up --create-dirs "https://cli.upbound.io/stable/${UP_VERSION}/bin/linux_amd64/up" && \
+        chmod +x /tmp/up
+
+    - name: Login to Upbound
+      shell: bash
+      env:
+        UP_TOKEN: ${{ inputs.xpkg-upbound-token }}
+      run: /tmp/up login
+
+    - name: Append extensions to package
+      shell: bash
+      run: |
+        /tmp/up alpha xpkg append \
+          --extensions-root=${{ inputs.extensions-root }} \
+          ${{ inputs.package }}:${{ inputs.version }}
