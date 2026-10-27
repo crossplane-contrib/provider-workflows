@@ -23,7 +23,7 @@ on:
         type: boolean
         default: false
       runs-on:
-        default: ubuntu-latest
+        default: ubuntu-26.04
         required: false
         type: string
       mirror:
@@ -65,6 +65,13 @@ jobs:
   publish-artifacts:
     runs-on: ${{ inputs.runs-on }}
     steps:
+      # Temporary workaround: ubuntu-26.04 mounts /tmp as a tmpfs capped at about 8 GiB,
+      # which makes large builds fail with "disk quota exceeded". RUNNER_TEMP lives on the
+      # root disk. Remove once GitHub's ubuntu-26.04 rollout keeps /tmp on disk.
+      # See https://github.com/actions/runner-images/issues/14777
+      - name: Keep temp files off the size-capped tmpfs /tmp of ubuntu-26.04 runners
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Cleanup Disk
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         if: ${{ inputs.cleanup-disk }}
