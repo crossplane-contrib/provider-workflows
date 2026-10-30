@@ -17,7 +17,6 @@ S3_BUCKET ?= $(PROJECT_NAME).releases
 
 # ====================================================================================
 # Setup Go
-GO_REQUIRED_VERSION = 1.23
 # GOLANGCILINT_VERSION is inherited from build submodule by default.
 # Uncomment below if you need to override the version.
 # GOLANGCILINT_VERSION ?= 1.61.0
